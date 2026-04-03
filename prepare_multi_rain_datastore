@@ -1,0 +1,79 @@
+function [dsRain, dsClean] = prepare_multi_rain_datastore(rainRoot, cleanRoot, imageSize)
+% PREPARE_MULTI_RAIN_DATASTORE
+% Handles MANY rainy versions for ONE clean image.
+%
+% rainRoot  = folder with ALL rainy images  (1_1.png, 1_2.png, ..., 900_10.png)
+% cleanRoot = folder with clean images      (1.png, 2.png, ..., 900.png)
+%
+% It creates pairs:
+%   (1_1.png, 1.png), (1_2.png, 1.png), ..., (900_10.png, 900.png)
+
+ext = {'.png','.jpg','.jpeg','.bmp'};
+
+%% --- Get list of clean images ---
+cleanFilesAll = dir(cleanRoot);
+% Remove folders (keep only files)
+cleanFilesAll = cleanFilesAll(~[cleanFilesAll.isdir]);
+
+% Keep only image files by extension
+keepClean = false(size(cleanFilesAll));
+for i = 1:numel(cleanFilesAll)
+    [~,~,e] = fileparts(cleanFilesAll(i).name);
+    keepClean(i) = any(strcmpi(e, ext));
+end
+cleanFiles = cleanFilesAll(keepClean);
+
+%% --- Get list of rainy images ---
+rainFilesAll = dir(rainRoot);
+rainFilesAll = rainFilesAll(~[rainFilesAll.isdir]);
+
+keepRain = false(size(rainFilesAll));
+for i = 1:numel(rainFilesAll)
+    [~,~,e] = fileparts(rainFilesAll(i).name);
+    keepRain(i) = any(strcmpi(e, ext));
+end
+rainFiles = rainFilesAll(keepRain);
+
+rainNames  = {rainFiles.name};
+pairsRain  = {};
+pairsClean = {};
+pairCount  = 0;
+
+%% --- Build (rain, clean) pairs ---
+for i = 1:numel(cleanFiles)
+
+    cleanName = cleanFiles(i).name;            % e.g. '1.png'
+    [~, cleanBase, ~] = fileparts(cleanName);  % e.g. '1'
+
+    % We assume rainy files start with this base:
+    % e.g. '1_1.png', '1_2.png', ...
+    prefix = cleanBase;
+
+    matchIdx = startsWith(rainNames, prefix);
+
+    if ~any(matchIdx)
+        fprintf('Warning: No rainy images found for clean image %s\n', cleanName);
+        continue;
+    end
+
+    thisRainFiles = rainFiles(matchIdx);
+
+    for j = 1:numel(thisRainFiles)
+        pairCount = pairCount + 1;
+        pairsRain{pairCount}  = fullfile(rainRoot,  thisRainFiles(j).name);
+        pairsClean{pairCount} = fullfile(cleanRoot, cleanName);
+    end
+end
+
+fprintf('Total paired samples created: %d\n', pairCount);
+
+%% --- Create imageDatastores ---
+
+% Convert to string array (imageDatastore can read string array)
+rainFilesList  = string(pairsRain);
+cleanFilesList = string(pairsClean);
+
+dsRain  = imageDatastore(rainFilesList,  'FileExtensions', ext, 'IncludeSubfolders', false);
+dsClean = imageDatastore(cleanFilesList, 'FileExtensions', ext, 'IncludeSubfolders', false);
+
+end
