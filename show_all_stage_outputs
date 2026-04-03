@@ -1,0 +1,125 @@
+clear; clc; close all;
+
+%% -------- LOAD MODELS --------
+load("derain_generator_final.mat","dlnetG");
+
+% (Optional) Load discriminator if available
+hasDiscriminator = false;
+if isfile("discriminator_model.mat")
+    load("discriminator_model.mat","dlnetD");
+    hasDiscriminator = true;
+end
+
+%% -------- SELECT IMAGES --------
+[rainFile, rainPath] = uigetfile({'*.jpg;*.png'},'Select Rainy Image');
+[gtFile, gtPath] = uigetfile({'*.jpg;*.png'},'Select Ground Truth Image');
+
+Irain = im2single(imread(fullfile(rainPath,rainFile)));
+Igt   = im2single(imread(fullfile(gtPath,gtFile)));
+
+origSize = size(Irain);
+
+%% -------- RESIZE --------
+H = 256; W = 256;
+Irain_resized = imresize(Irain,[H W]);
+
+%% -------- 1. BILATERAL FILTERING --------
+[Ihf, Irain_resized] = bilateral_highfreq(Irain_resized);
+Ilow = Irain_resized - Ihf;
+
+%% -------- 2. GAN OUTPUT --------
+dlX = dlarray(single(Ihf),"SSC");
+dlX = dlarray(dlX,"SSCB");
+
+dlOut = predict(dlnetG, dlX);
+dlOut = (dlOut + 1)/2;
+
+Igan = squeeze(gather(extractdata(dlOut)));
+
+%% -------- 3. COMBINE --------
+Y = Irain_resized - Igan;
+Y = max(min(Y,1),0);
+
+%% -------- 4. ENHANCEMENT --------
+Yenh = enhance_output(Y);
+
+%% -------- 5. RESIZE BACK --------
+Y_full    = imresize(Y, origSize(1:2));
+Yenh_full = imresize(Yenh, origSize(1:2));
+
+%% -------- 6. METRICS --------
+psnr_val = psnr(Yenh_full, Igt);
+ssim_val = ssim(Yenh_full, Igt);
+
+%% -------- DISPLAY ALL --------
+figure('Name','FULL PIPELINE OUTPUT','NumberTitle','off');
+
+% 1
+subplot(3,3,1)
+imshow(Irain)
+title('Input Rainy')
+
+% 2
+subplot(3,3,2)
+imshow(Ilow)
+title('Low Frequency')
+
+% 3
+subplot(3,3,3)
+imshow(Ihf)
+title('High Frequency')
+
+% 4
+subplot(3,3,4)
+imshow(Igan)
+title('GAN Output')
+
+% 5
+subplot(3,3,5)
+imshow(Y)
+title('Before Enhancement')
+
+% 6
+subplot(3,3,6)
+imshow(Yenh)
+title('After Enhancement')
+
+% 7
+subplot(3,3,7)
+imshow(Igt)
+title('Ground Truth')
+
+% 8 (Discriminator Output)
+subplot(3,3,8)
+
+if hasDiscriminator
+    dlY = dlarray(Y,"SSCB");
+    dlDisc = forward(dlnetD, dlY);
+    discOut = gather(extractdata(dlDisc));
+
+    discMap = squeeze(discOut(:,:,1));
+    discMap = mat2gray(discMap);
+
+    imagesc(discMap)
+    axis image
+    colormap jet
+    colorbar
+    title('Discriminator Map')
+else
+    text(0.2,0.5,'No Discriminator','FontSize',12)
+    axis off
+end
+
+% 9 (Comparison)
+subplot(3,3,9)
+imshowpair(Irain, Yenh_full, 'montage')
+title('Input vs Output')
+
+%% -------- METRICS WINDOW --------
+figure('Name','Metrics','NumberTitle','off');
+axis off
+text(0.2,0.6,sprintf('PSNR = %.2f dB',psnr_val),'FontSize',16)
+text(0.2,0.4,sprintf('SSIM = %.3f',ssim_val),'FontSize',16)
+title('Image Quality Metrics')
+
+disp("✅ Pipeline visualization complete!");
