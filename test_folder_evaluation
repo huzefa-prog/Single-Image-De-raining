@@ -1,0 +1,79 @@
+clear; clc; close all;
+
+load("derain_gan_generator.mat","dlnetG");
+
+rainFolder = uigetdir(pwd,'Select Rainy Folder');
+gtFolder   = uigetdir(pwd,'Select Ground Truth Folder');
+
+% Support jpg and png
+rainFiles = [dir(fullfile(rainFolder,'*.jpg'));
+             dir(fullfile(rainFolder,'*.png'))];
+
+fprintf("Total rainy images found: %d\n", length(rainFiles));
+
+numImages = length(rainFiles);
+
+psnrVals = [];
+ssimVals = [];
+
+for i = 1:numImages
+
+    rainName = rainFiles(i).name;
+    rainPath = fullfile(rainFolder,rainName);
+
+    % Extract base name before underscore
+    tokens = split(rainName, "_");
+    baseName = tokens{1};
+
+    % Try GT as .jpg
+    gtPath = fullfile(gtFolder, [baseName '.jpg']);
+
+    % If not found, try .png
+    if ~isfile(gtPath)
+        gtPath = fullfile(gtFolder, [baseName '.png']);
+    end
+
+    if ~isfile(gtPath)
+        warning("GT not found for %s", rainName);
+        continue;
+    end
+
+    Irain = im2single(imread(rainPath));
+    Igt   = im2single(imread(gtPath));
+
+    origSize = size(Irain);
+
+    % Resize to training size
+    H=320; W=480;
+    Irain_resized = imresize(Irain,[H W]);
+
+    [Ihf, Irain_resized] = bilateral_highfreq(Irain_resized);
+
+    dlX = dlarray(single(Ihf),"SSC");
+    dlX = dlarray(dlX,"SSCB");
+
+    dlS = predict(dlnetG,dlX);
+    dlS = (dlS+1)/2;
+    S = squeeze(gather(extractdata(dlS)));
+
+    Y = Irain_resized - S;
+    Y = max(min(Y,1),0);
+
+    Y_full = imresize(Y,[origSize(1) origSize(2)]);
+
+    psnrVals(end+1) = psnr(Y_full,Igt);
+    ssimVals(end+1) = ssim(Y_full,Igt);
+
+    fprintf("Image %d/%d → PSNR: %.2f  SSIM: %.3f\n", ...
+            i,numImages,psnrVals(end),ssimVals(end));
+
+end
+
+fprintf("\n===== FINAL  RESULTS =====\n");
+fprintf("Total Valid Test Images: %d\n", length(psnrVals));
+fprintf("Average PSNR: %.4f dB\n", mean(psnrVals));
+fprintf("Average SSIM: %.4f\n", mean(ssimVals));
+fprintf("PSNR Std Dev: %.4f\n", std(psnrVals));
+fprintf("SSIM Std Dev: %.4f\n", std(ssimVals));
+
+save("evaluation_results.mat","psnrVals","ssimVals","Y_full","Igt","Irain");
