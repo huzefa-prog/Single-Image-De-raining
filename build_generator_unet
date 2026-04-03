@@ -1,0 +1,44 @@
+function lgraph = build_generator_unet(imageSize)
+% Simple encoder-decoder generator (no skip connections)
+% Input : high-frequency image (HxWx3)
+% Output: residual image (HxWx3), passed through tanh
+
+layers = [
+    imageInputLayer(imageSize, 'Name','input', 'Normalization','none')
+
+    % Encoder
+    convolution2dLayer(3, 64, 'Padding','same', 'Stride',1, 'Name','enc1_conv')
+    batchNormalizationLayer('Name','enc1_bn')
+    leakyReluLayer(0.2,'Name','enc1_lrelu')
+
+    convolution2dLayer(3, 128, 'Padding','same', 'Stride',2, 'Name','enc2_conv')
+    batchNormalizationLayer('Name','enc2_bn')
+    leakyReluLayer(0.2,'Name','enc2_lrelu')
+
+    convolution2dLayer(3, 256, 'Padding','same', 'Stride',2, 'Name','enc3_conv')
+    batchNormalizationLayer('Name','enc3_bn')
+    leakyReluLayer(0.2,'Name','enc3_lrelu')
+
+    convolution2dLayer(3, 512, 'Padding','same', 'Stride',2, 'Name','enc4_conv')
+    batchNormalizationLayer('Name','enc4_bn')
+    leakyReluLayer(0.2,'Name','enc4_lrelu')
+
+    % Decoder
+    transposedConv2dLayer(3, 256, 'Stride',2, 'Cropping','same', 'Name','dec1_tconv')
+    batchNormalizationLayer('Name','dec1_bn')
+    leakyReluLayer(0.2,'Name','dec1_lrelu')
+
+    transposedConv2dLayer(3, 128, 'Stride',2, 'Cropping','same', 'Name','dec2_tconv')
+    batchNormalizationLayer('Name','dec2_bn')
+    leakyReluLayer(0.2,'Name','dec2_lrelu')
+
+    transposedConv2dLayer(3, 64, 'Stride',2, 'Cropping','same', 'Name','dec3_tconv')
+    batchNormalizationLayer('Name','dec3_bn')
+    leakyReluLayer(0.2,'Name','dec3_lrelu')
+
+    convolution2dLayer(3, 3, 'Padding','same', 'Stride',1, 'Name','final_conv')
+    tanhLayer('Name','tanh_out')   % output in [-1, 1]
+];
+
+lgraph = layerGraph(layers);
+end
