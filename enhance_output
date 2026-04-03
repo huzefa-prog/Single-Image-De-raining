@@ -1,0 +1,74 @@
+function Ienh = enhance_output(Iin)
+% ENHANCE_OUTPUT
+% Gentle enhancement:
+%  - small brightness/contrast boost
+%  - very light sharpening (only strong edges)
+%  - slight saturation increase
+%  - blended with original so it looks natural
+
+% ---------- 0. Normalize to double [0,1] ----------
+origClass = class(Iin);
+I = im2double(Iin);
+I = max(min(I,1),0);
+
+% If grayscale, make it 3-channel for processing
+if size(I,3) == 1
+    I = repmat(I,[1 1 3]);
+end
+
+% ---------- 1. Soft global tone (gamma + imadjust) ----------
+gamma  = 0.9;      % <1 = slightly brighter mid-tones
+lowIn  = 0.02;
+highIn = 0.98;
+
+Iadj = zeros(size(I));
+for c = 1:3
+    Ich = I(:,:,c) .^ gamma;
+    Iadj(:,:,c) = imadjust(Ich,[lowIn highIn],[0 1]);
+end
+
+% ---------- 2. Gentle local contrast using gray guidance ----------
+Igray = rgb2gray(Iadj);
+
+L_eq = adapthisteq(Igray, ...
+    'ClipLimit',0.01, ...   % small contrast boost
+    'NumTiles',[4 4]);      % coarse tiles → avoid artifacts
+
+% Build a smooth gain map
+gain = (L_eq + 1e-3) ./ (Igray + 1e-3);
+gain = medfilt2(gain,[15 15]);      % smooth the gain
+
+gain3 = repmat(gain,[1 1 3]);
+Icontrast = Iadj .* gain3;
+Icontrast = max(min(Icontrast,1),0);
+
+% ---------- 3. Very light edge sharpening ----------
+Isharp = imsharpen(Icontrast, ...
+    'Radius',1.0, ...
+    'Amount',0.3, ...      % small sharpening
+    'Threshold',0.2);      % only strong edges → avoids rain noise
+
+Isharp = max(min(Isharp,1),0);
+
+% ---------- 4. Slight saturation boost ----------
+HSV = rgb2hsv(Isharp);
+HSV(:,:,2) = HSV(:,:,2) * 1.05;    % +5% saturation
+Icolor = hsv2rgb(HSV);
+Icolor = max(min(Icolor,1),0);
+
+% ---------- 5. Blend with original GAN output ----------
+alpha = 0.7;   % 0.7 = mostly enhanced, 0.3 original
+Iout = alpha * Icolor + (1 - alpha) * I;
+Iout = max(min(Iout,1),0);
+
+% ---------- 6. Return in original class ----------
+switch origClass
+    case 'uint8'
+        Ienh = im2uint8(Iout);
+    case 'single'
+        Ienh = single(Iout);
+    otherwise
+        Ienh = Iout;        % double or others
+end
+
+end
