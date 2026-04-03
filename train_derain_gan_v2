@@ -1,0 +1,88 @@
+function train_derain_gan_v2
+
+%% --------- USER SETTINGS ---------
+rainRoot   ="C:\Users\Huzefa\OneDrive\Desktop\final yaad pro details\rainy_image_dataset\training\rainy_image";    % <- change this
+cleanRoot  = "C:\Users\Huzefa\OneDrive\Desktop\final yaad pro details\rainy_image_dataset\training\ground_truth";   % <- change this
+
+imageSize   = [256 256 3];   % patch size
+miniBatchSz = 8;
+numEpochs   = 20;            % you have time, go higher
+
+learnRateG  = 5e-5;   % generator slower
+learnRateD  = 2e-4;   % discriminator slightly slower
+
+
+%% --------- DATASTORES ----------
+disp("Creating datastores (v2)...");
+[dsTrainRain, dsTrainClean] = prepare_multi_rain_datastore(rainRoot, cleanRoot, imageSize);
+
+mbq = minibatchqueue( ...
+    combine(dsTrainRain, dsTrainClean), ...
+    'MiniBatchSize', miniBatchSz, ...
+    'MiniBatchFcn', @(rain,clean) preprocessBatch_patches(rain,clean,imageSize), ...
+    'MiniBatchFormat', {'SSCB','SSCB'}, ...
+    'OutputEnvironment','gpu');
+
+%% --------- NETWORKS ----------
+disp("Building networks...");
+netG = build_generator_unet(imageSize);      % your existing function
+netD = build_discriminator_patchGAN(imageSize); % your existing D (or same as before)
+
+dlnetG = dlnetwork(netG);
+dlnetD = dlnetwork(netD);
+
+if canUseGPU
+    dlnetG = dlupdate(@gpuArray,dlnetG);
+    dlnetD = dlupdate(@gpuArray,dlnetD);
+end
+
+%% --------- TRAINING OPTIONS ----------
+trailingAvgG  = [];
+trailingVarG  = [];
+trailingAvgD  = [];
+trailingVarD  = [];
+
+iteration = 0;
+
+%% --------- TRAINING LOOP ----------
+disp("Starting training v2...");
+
+for epoch = 1:numEpochs
+
+    reset(mbq);
+
+    while hasdata(mbq)
+        iteration = iteration + 1;
+
+        [dlX, dlY] = next(mbq);   % dlX: rainy, dlY: clean
+
+        [gradG, gradD, lossG, lossD, dlnetG, dlnetD] = ...
+            dlfeval(@modelGradients_v2, dlnetG, dlnetD, dlX, dlY);
+        
+        % ----------------------------------------
+        % Adam update
+        % ----------------------------------------
+        [dlnetG,trailingAvgG,trailingVarG] = adamupdate(dlnetG,gradG, ...
+            trailingAvgG,trailingVarG,iteration,learnRateG);
+        [dlnetD,trailingAvgD,trailingVarD] = adamupdate(dlnetD,gradD, ...
+            trailingAvgD,trailingVarD,iteration,learnRateD);
+
+        if mod(iteration, 200) == 0
+            fprintf("Epoch %d, Iter %d, LossG = %.4f, LossD = %.4f\n", ...
+                epoch, iteration, double(gather(extractdata(lossG))), ...
+                double(gather(extractdata(lossD))));
+        end
+    end
+
+    % Save generator after each epoch
+    genFilename = sprintf("derain_gan_generator_v2_epoch_%02d.mat",epoch);
+    save(genFilename,"netG","-v7.3");
+    fprintf("Epoch %d finished, model saved as %s\n",epoch,genFilename);
+
+end
+
+% Final save
+save("derain_gan_generator_v2_final.mat","netG","-v7.3");
+disp("Training complete (v2).");
+
+end
