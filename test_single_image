@@ -1,0 +1,127 @@
+%% test_single_image_with_GT.m
+clear; clc; close all;
+
+% ------------------------------
+% Load trained generator
+% ------------------------------
+modelPath = "derain_gan_generator.mat";
+load(modelPath, "dlnetG");
+
+% ------------------------------
+% Select Rainy Image
+% ------------------------------
+[filename, pathname] = uigetfile({'*.png;*.jpg;*.jpeg;*.bmp','Images'}, ...
+                                 'Select Rainy Image');
+if isequal(filename,0)
+    disp('No rainy image selected.'); 
+    return;
+end
+
+rainPath = fullfile(pathname, filename);
+Irain = im2single(imread(rainPath));
+origSize = size(Irain);
+
+% ------------------------------
+% Select Ground Truth Image
+% ------------------------------
+[gtname, gtpath] = uigetfile({'*.png;*.jpg;*.jpeg;*.bmp','Images'}, ...
+                             'Select Ground Truth Image');
+if isequal(gtname,0)
+    disp('No ground truth selected.');
+    return;
+end
+
+gtPath = fullfile(gtpath, gtname);
+Igt = im2single(imread(gtPath));
+Igt = imresize(Igt, [origSize(1) origSize(2)]);
+
+% ------------------------------
+% Resize to training size
+% ------------------------------
+H = 320; 
+W = 480;
+Irain_resized = imresize(Irain, [H W]);
+
+% ------------------------------
+% Bilateral high-frequency
+% ------------------------------
+[Ihf, Irain_resized] = bilateral_highfreq(Irain_resized);
+
+dlXhf = dlarray(single(Ihf), "SSC");
+dlXhf = dlarray(dlXhf, "SSCB");
+
+% ------------------------------
+% Forward through generator
+% ------------------------------
+dlS = predict(dlnetG, dlXhf);
+dlS = (dlS + 1)/2;
+
+S = gather(extractdata(dlS));
+S = squeeze(S);
+
+% ------------------------------
+% Residual subtraction
+% ------------------------------
+Yderain = Irain_resized - S;
+Yderain = max(min(Yderain,1),0);
+
+% Enhancement
+Yenh = enhance_output(Yderain);
+
+% ------------------------------
+% Resize back to original size
+% ------------------------------
+Yderain_full = imresize(Yderain, [origSize(1) origSize(2)]);
+Yenh_full    = imresize(Yenh,    [origSize(1) origSize(2)]);
+
+% ------------------------------
+% TRUE PSNR & SSIM (vs Ground Truth)
+% ------------------------------
+psnr_before = psnr(Yderain_full, Igt);
+ssim_before = ssim(Yderain_full, Igt);
+
+psnr_after  = psnr(Yenh_full, Igt);
+ssim_after  = ssim(Yenh_full, Igt);
+
+fprintf("\nBefore Enhancement -> PSNR: %.4f dB | SSIM: %.4f\n", ...
+        psnr_before, ssim_before);
+
+fprintf("After Enhancement  -> PSNR: %.4f dB | SSIM: %.4f\n\n", ...
+        psnr_after, ssim_after);
+
+% ------------------------------
+% DISPLAY EVERYTHING IN ONE WINDOW
+% ------------------------------
+figure('Name','Rain Removal Evaluation','NumberTitle','off');
+
+subplot(2,3,1);
+imshow(Irain);
+title('Rainy Input');
+
+subplot(2,3,2);
+imshow(Yderain_full);
+title(sprintf('Before Enh.\nPSNR: %.2f  SSIM: %.3f', ...
+      psnr_before, ssim_before));
+
+subplot(2,3,3);
+imshow(Yenh_full);
+title(sprintf('After Enh.\nPSNR: %.2f  SSIM: %.3f', ...
+      psnr_after, ssim_after));
+
+subplot(2,3,4);
+imshow(Igt);
+title('Ground Truth');
+
+subplot(2,3,[5 6]);
+bar([psnr_after, ssim_after]);
+set(gca,'XTickLabel',{'PSNR (dB)','SSIM'});
+ylabel('Value');
+title('Final Metrics (vs Ground Truth)');
+grid on;
+
+% ------------------------------
+% Save enhanced output
+% ------------------------------
+[outFolder,~,~] = fileparts(rainPath);
+imwrite(Yenh_full, fullfile(outFolder, "derain_enhanced_" + filename));
+disp('Saved enhanced de-rained image.');
