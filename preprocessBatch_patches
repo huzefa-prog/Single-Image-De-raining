@@ -1,0 +1,33 @@
+function [dlXrain, dlYclean] = preprocessBatch_patches(batchRain, batchClean, imageSize)
+% Returns random 256x256 (or given size) patches from each pair.
+
+numImgs = numel(batchRain);
+H = imageSize(1); W = imageSize(2);
+
+Xrain  = zeros(H,W,3,numImgs,'single');
+Yclean = zeros(H,W,3,numImgs,'single');
+
+for i = 1:numImgs
+    Irain  = im2single(batchRain{i});
+    Iclean = im2single(batchClean{i});
+
+    % Ensure both same size
+    [h,w,~] = size(Irain);
+    Ht = max(H,h); Wt = max(W,w);
+    Irain  = imresize(Irain,[Ht Wt]);
+    Iclean = imresize(Iclean,[Ht Wt]);
+
+    % Random crop position
+    y = randi([1 Ht-H+1]);
+    x = randi([1 Wt-W+1]);
+
+    IrPatch = Irain(y:y+H-1, x:x+W-1, :);
+    IcPatch = Iclean(y:y+H-1, x:x+W-1, :);
+
+    Xrain(:,:,:,i)  = IrPatch;
+    Yclean(:,:,:,i) = IcPatch;
+end
+
+dlXrain  = dlarray(Xrain,  "SSCB");
+dlYclean = dlarray(Yclean, "SSCB");
+end
