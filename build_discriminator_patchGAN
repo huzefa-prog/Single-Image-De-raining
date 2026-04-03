@@ -1,0 +1,37 @@
+function lgraph = build_discriminator_patchGAN(imageSize)
+% BUILD_DISCRIMINATOR_PATCHGAN
+% Simple PatchGAN discriminator for 256x256x3 (or similar) images.
+% Input: imageSize = [H W 3]
+% Output: layerGraph for dlnetwork
+
+channels = imageSize(3);
+
+layers = [
+    imageInputLayer(imageSize, 'Name','input', 'Normalization','none')
+
+    % Block 1
+    convolution2dLayer(4, 64, 'Stride',2, 'Padding','same', 'Name','conv1')
+    leakyReluLayer(0.2, 'Name','lrelu1')
+
+    % Block 2
+    convolution2dLayer(4, 128, 'Stride',2, 'Padding','same', 'Name','conv2')
+    batchNormalizationLayer('Name','bn2')
+    leakyReluLayer(0.2, 'Name','lrelu2')
+
+    % Block 3
+    convolution2dLayer(4, 256, 'Stride',2, 'Padding','same', 'Name','conv3')
+    batchNormalizationLayer('Name','bn3')
+    leakyReluLayer(0.2, 'Name','lrelu3')
+
+    % Block 4
+    convolution2dLayer(4, 512, 'Stride',1, 'Padding','same', 'Name','conv4')
+    batchNormalizationLayer('Name','bn4')
+    leakyReluLayer(0.2, 'Name','lrelu4')
+
+    % Output conv -> Patch logits (no sigmoid here, we use softplus in loss)
+    convolution2dLayer(4, 1, 'Stride',1, 'Padding','same', 'Name','conv_out')
+    ];
+
+lgraph = layerGraph(layers);
+
+end
