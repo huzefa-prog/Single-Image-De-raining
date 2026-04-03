@@ -1,0 +1,17 @@
+function [Ihigh, Irain_resized] = bilateral_highfreq(Irain)
+% Bilateral low-pass + high-frequency layer (as in the paper)
+% Irain: HxWx3, single [0,1]
+
+% If grayscale, replicate
+if size(Irain,3) == 1
+    Irain = repmat(Irain,1,1,3);
+end
+
+% Parameters roughly inspired by the paper
+spatialSigma = 5;   % you can tune
+rangeSigma   = 0.1; % you can tune
+
+Ilow = imbilatfilt(Irain, rangeSigma, spatialSigma);
+Ihigh = Irain - Ilow;      % high-frequency (rain + edges)
+Irain_resized = Irain;
+end
