@@ -1,0 +1,63 @@
+function [gradientsG, gradientsD, lossG, lossD, dlnetG, dlnetD] = ...
+    modelGradients_v2(dlnetG, dlnetD, dlX, dlY)
+
+lambdaL1  = 100;       % reconstruction weight
+lambdaAdv = 0.001;     % GAN weight
+lambdaTV  = 0.0005;    % smoothness
+gradClip  = 1.0;       % gradient clipping threshold
+
+% ----------------------------------------
+% Forward pass through Generator
+% ----------------------------------------
+dlYPred = forward(dlnetG, dlX);
+
+% ----------------------------------------
+% Forward pass through Discriminator
+% ----------------------------------------
+dlDReal = forward(dlnetD, dlY);
+dlDFake = forward(dlnetD, dlYPred);
+
+% Clamp discriminator outputs to avoid explosion
+dlDReal = min(max(dlDReal, -20), 20);
+dlDFake = min(max(dlDFake, -20), 20);
+
+% ----------------------------------------
+% Loss functions
+% ----------------------------------------
+
+% 1. L1 Loss
+lossL1 = mean(abs(dlYPred - dlY), "all");
+
+% 2. Total Variation Loss
+dy = dlYPred(2:end,:,:,:) - dlYPred(1:end-1,:,:,:);
+dx = dlYPred(:,2:end,:,:) - dlYPred(:,1:end-1,:,:);
+lossTV = mean(abs(dy), "all") + mean(abs(dx), "all");
+
+% 3. Stable softplus (works with dlarray)
+softplus = @(x) max(x,0) + log(exp(-abs(x)) + 1);
+
+% Discriminator losses
+lossDReal = mean( softplus(-dlDReal), "all" );
+lossDFake = mean( softplus( dlDFake), "all" );
+lossD     = lossDReal + lossDFake;
+
+% Generator adversarial loss
+lossGAdv  = mean( softplus(-dlDFake), "all" );
+
+% Final generator loss
+lossG = lambdaL1*lossL1 + lambdaAdv*lossGAdv + lambdaTV*lossTV;
+
+% ----------------------------------------
+% Compute Gradients
+% ----------------------------------------
+gradientsG = dlgradient(lossG, dlnetG.Learnables, 'RetainData', true);
+gradientsD = dlgradient(lossD, dlnetD.Learnables);
+
+% ----------------------------------------
+% Gradient Clipping
+% ----------------------------------------
+clip = @(g) min(max(g, -gradClip), gradClip);
+gradientsG = dlupdate(@(g) clip(g), gradientsG);
+gradientsD = dlupdate(@(g) clip(g), gradientsD);
+
+end
